@@ -48,6 +48,8 @@ import random
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
+import httpx
+
 import jwt
 from fastapi import Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -86,6 +88,9 @@ VAULT_JWT_SECRET = os.getenv("VAULT_JWT_SECRET", "super-secret-jwt-key-for-devel
 
 # Security configuration
 security = HTTPBearer()
+
+# Read webhook URL from environment variable
+SOC_WEBHOOK_URL = os.getenv("SOC_WEBHOOK_URL")
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
@@ -429,6 +434,36 @@ async def _call_llm_soc(query_description: str) -> dict:
 
     # Fell through — heuristic fallback
     return {"classification": None, "confidence": 0.0, "narrative": "LLM parse failed.", "llm_backend": "heuristic-fallback"}
+
+
+async def trigger_soc_alert(tier: str, classification: str, narrative: str, caller_ip: str) -> None:
+    """Send an asynchronous webhook alert to the SOC team."""
+    if not SOC_WEBHOOK_URL:
+        log.warning("[SOC] Webhook URL not configured. Skipping alert.")
+        return
+
+    payload = {
+        "content": "🚨 **ALERT:** Heisenberg Vault Mutation Triggered",
+        "embeds": [
+            {
+                "title": f"Threat Level: {tier}",
+                "color": 16711680,  # Red color for critical
+                "fields": [
+                    {"name": "Classification", "value": classification, "inline": True},
+                    {"name": "Source IP", "value": caller_ip, "inline": True},
+                    {"name": "AI Narrative", "value": narrative, "inline": False}
+                ],
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        ]
+    }
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(SOC_WEBHOOK_URL, json=payload, timeout=5.0)
+            log.info(f"[SOC] Alert sent successfully for {caller_ip}")
+    except Exception as e:
+        log.error(f"[SOC] Failed to send webhook alert: {e}")
 
 
 def _heuristic_classify(records: list[dict]) -> dict:
@@ -892,6 +927,15 @@ async def query_records(
                 "[SOC] ELEVATED→CRITICAL escalation for %s — LLM narrative: %.120s",
                 caller_ip, intent_result.get("narrative", ""),
             )
+            
+            # Fire SOC Webhook Alert
+            await trigger_soc_alert(
+                tier="CRITICAL",
+                classification=intent_result.get("classification", "MASS_SURVEILLANCE"),
+                narrative=intent_result.get("narrative", "Escalated to garbage payloads."),
+                caller_ip=caller_ip
+            )
+
             _write_audit_log(
                 caller_ip, query_str, "CRITICAL", count,
                 soc_classification=intent_result.get("classification"),
@@ -952,6 +996,15 @@ async def query_records(
             "Nonce: %s",
             caller_ip, count, request_nonce.hex(),
         )
+        
+        # Fire SOC Webhook Alert
+        await trigger_soc_alert(
+            tier="CRITICAL",
+            classification="MASS_SURVEILLANCE",
+            narrative="Mass surveillance blocked via cryptographic obfuscation.",
+            caller_ip=caller_ip
+        )
+        
         _write_audit_log(caller_ip, query_str, "CRITICAL", count, soc_narrative="Mass surveillance blocked via cryptographic obfuscation.")
 
         return JSONResponse(
