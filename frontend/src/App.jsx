@@ -5,10 +5,12 @@ import QueryBuilder from './components/QueryBuilder'
 import PayloadPane from './components/PayloadPane'
 import AuditLog from './components/AuditLog'
 import ThreatGraph from './components/ThreatGraph'
+import LoginScreen from './components/LoginScreen'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
 export default function App() {
+  const [authed, setAuthed] = useState(!!sessionStorage.getItem('vault_admin_token'))
   const [response, setResponse]   = useState(null)
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState(null)
@@ -75,6 +77,10 @@ export default function App() {
       setLoading(false)
     }
   }, [])
+
+  if (!authed) {
+    return <LoginScreen onLogin={() => setAuthed(true)} />
+  }
 
   return (
     <div className={`min-h-screen bg-slate-900 text-slate-100 flex flex-col select-none
