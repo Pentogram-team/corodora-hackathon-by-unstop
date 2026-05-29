@@ -25,16 +25,20 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - ./vault.db:/app/vault.db
+      - ./backend:/app
 
   frontend:
     build:
       context: ./frontend
+      target: builder
       args:
-        # Pass the backend URL into the Vite build process.
-        # This determines where the React app will send fetch requests.
         - VITE_API_BASE=http://localhost:8000
     container_name: heisenberg-frontend
     ports:
-      - "5173:80"
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
     depends_on:
       - backend

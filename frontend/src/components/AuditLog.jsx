@@ -9,13 +9,18 @@ const TIER_STYLE = {
 function ConfidenceBar({ value }) {
   if (value === null || value === undefined) return null
   const pct  = Math.round(value * 100)
-  const color = pct >= 80 ? 'bg-red-500' : pct >= 50 ? 'bg-amber-500' : 'bg-emerald-500'
+  const isHighThreat = pct >= 80
+  const color = isHighThreat ? 'bg-red-500' : pct >= 50 ? 'bg-amber-500' : 'bg-emerald-500'
+  const glowStyle = isHighThreat ? { boxShadow: '0 0 12px rgba(239,68,68,0.8)' } : {}
+
   return (
     <div className="mt-1 flex items-center gap-2">
-      <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+      <div className="flex-1 h-1.5 rounded-full bg-slate-800 overflow-hidden" style={glowStyle}>
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-[10px] font-mono text-slate-500">{pct}%</span>
+      <span className={`text-[10px] font-mono ${isHighThreat ? 'text-red-400 animate-pulse' : 'text-slate-500'}`}>
+        {pct}%
+      </span>
     </div>
   )
 }
