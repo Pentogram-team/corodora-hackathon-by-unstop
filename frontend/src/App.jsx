@@ -4,6 +4,7 @@ import StatusBanner from './components/StatusBanner'
 import QueryBuilder from './components/QueryBuilder'
 import PayloadPane from './components/PayloadPane'
 import AuditLog from './components/AuditLog'
+import ThreatGraph from './components/ThreatGraph'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 
@@ -82,6 +83,8 @@ export default function App() {
       <Header connected={connected} isMutation={isMutation} />
 
       <StatusBanner isMutation={isMutation} loading={loading} response={response} />
+
+      <ThreatGraph log={auditLog} />
 
       <QueryBuilder onExecute={executeQuery} loading={loading} />
 

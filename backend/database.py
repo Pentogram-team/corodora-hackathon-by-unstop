@@ -133,6 +133,23 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp           TEXT    NOT NULL,
+                caller_ip           TEXT    NOT NULL,
+                query_fingerprint   TEXT    NOT NULL,
+                tier                TEXT    NOT NULL,
+                record_count        INTEGER NOT NULL,
+                soc_classification  TEXT,
+                soc_confidence      REAL,
+                soc_narrative       TEXT,
+                prev_hash           TEXT    NOT NULL,
+                row_hash            TEXT    NOT NULL
+            )
+            """
+        )
         conn.commit()
 
         row_count = conn.execute("SELECT COUNT(*) FROM sensitive_records").fetchone()[0]

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 const TIER_STYLE = {
   SURGICAL: { badge: 'bg-emerald-950 text-emerald-400 border-emerald-500/40', dot: 'bg-emerald-400' },
@@ -45,6 +45,11 @@ function LogEntry({ entry, isFirst }) {
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-2">
+          {entry.isPersistent && (
+            <span className="px-1.5 py-0.5 text-[8px] font-mono rounded bg-blue-900/40 text-blue-400 border border-blue-500/30">
+              PERSISTED
+            </span>
+          )}
           <span className={`px-1.5 py-0.5 text-[10px] font-mono rounded border ${ts?.badge ?? ''}`}>
             {entry.tier}
           </span>
@@ -133,31 +138,100 @@ function LogEntry({ entry, isFirst }) {
 }
 
 export default function AuditLog({ log }) {
+  const [activeTab, setActiveTab] = useState('SESSION')
+  const [persistentLog, setPersistentLog] = useState([])
+  const [verifyStatus, setVerifyStatus] = useState(null)
+
+  const fetchPersistentLog = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/audit')
+      if (!res.ok) return
+      const data = await res.json()
+      const mapped = data.map(r => ({
+        id: `server-${r.id}`,
+        tier: r.tier,
+        query: `[FINGERPRINT] ${r.query_fingerprint}`,
+        ts: new Date(r.timestamp).toLocaleTimeString(),
+        recordCount: r.record_count,
+        classification: r.soc_classification,
+        confidence: r.soc_confidence,
+        narrative: r.soc_narrative,
+        isMutation: r.tier === 'CRITICAL',
+        isPersistent: true
+      }))
+      setPersistentLog(mapped)
+    } catch (e) {
+      console.error('Failed to fetch persistent log', e)
+    }
+  }
+
+  useEffect(() => {
+    fetchPersistentLog()
+    const int = setInterval(fetchPersistentLog, 30000)
+    return () => clearInterval(int)
+  }, [])
+
+  const verifyChain = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/audit/verify')
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.chain_valid) {
+        setVerifyStatus({ valid: true, text: `✓ CHAIN INTACT — ${data.total_entries} entries verified` })
+      } else {
+        setVerifyStatus({ valid: false, text: `✗ CHAIN BROKEN at entry #${data.first_broken_at} — possible tampering` })
+      }
+      setTimeout(() => setVerifyStatus(null), 5000)
+    } catch (e) {
+      console.error('Verify failed', e)
+    }
+  }
+
+  const activeEntries = activeTab === 'SESSION' ? log : persistentLog
+
   return (
     <div className="flex flex-col w-80 xl:w-96 shrink-0 rounded-lg border border-slate-700/60
                     bg-slate-900/60 backdrop-blur-sm overflow-hidden">
 
       {/* ── Panel header ────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-slate-800/80 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-violet-400" />
-          <span className="text-[11px] font-mono tracking-widest text-slate-400">
-            ADMIN AUDIT LOG
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-slate-600 font-mono">{log.length} entries</span>
-          {log.some(e => e.isMutation) && (
-            <span className="px-1.5 py-0.5 text-[9px] font-mono rounded bg-red-950 text-red-400 border border-red-500/30 animate-pulse">
-              MUTATIONS LOGGED
+      <div className="flex flex-col border-b border-slate-800/80 shrink-0">
+        <div className="flex items-center justify-between px-4 py-2.5">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-violet-400" />
+            <span className="text-[11px] font-mono tracking-widest text-slate-400">
+              ADMIN AUDIT LOG
             </span>
-          )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={verifyChain} className="px-2 py-0.5 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-600">
+              VERIFY CHAIN
+            </button>
+          </div>
+        </div>
+        {verifyStatus && (
+          <div className={`px-4 py-2 text-[10px] font-mono text-center border-t border-slate-800/80 ${verifyStatus.valid ? 'bg-emerald-950/50 text-emerald-400' : 'bg-red-950/50 text-red-400'}`}>
+            {verifyStatus.text}
+          </div>
+        )}
+        <div className="flex text-[10px] font-mono border-t border-slate-800/80">
+          <button 
+            onClick={() => setActiveTab('SESSION')}
+            className={`flex-1 py-2 text-center transition-colors ${activeTab === 'SESSION' ? 'bg-slate-800/80 text-slate-200 border-b-2 border-violet-500' : 'text-slate-500 hover:bg-slate-800/40 border-b-2 border-transparent'}`}
+          >
+            SESSION ({log.length})
+          </button>
+          <button 
+            onClick={() => setActiveTab('PERSISTENT')}
+            className={`flex-1 py-2 text-center transition-colors ${activeTab === 'PERSISTENT' ? 'bg-slate-800/80 text-slate-200 border-b-2 border-violet-500' : 'text-slate-500 hover:bg-slate-800/40 border-b-2 border-transparent'}`}
+          >
+            PERSISTENT ({persistentLog.length})
+          </button>
         </div>
       </div>
 
       {/* ── Log list ────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto min-h-0 p-2 space-y-2">
-        {log.length === 0 ? (
+        {activeEntries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-700 gap-2">
             <div className="text-3xl">📋</div>
             <p className="text-[11px] font-mono tracking-wider">AUDIT LOG EMPTY</p>
@@ -166,7 +240,7 @@ export default function AuditLog({ log }) {
             </p>
           </div>
         ) : (
-          log.map((entry, i) => (
+          activeEntries.map((entry, i) => (
             <LogEntry key={entry.id} entry={entry} isFirst={i === 0} />
           ))
         )}

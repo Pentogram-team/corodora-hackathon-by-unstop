@@ -627,6 +627,45 @@ def _make_envelope(
     return body
 
 
+def _write_audit_log(
+    caller_ip: str,
+    query_str: str,
+    tier: str,
+    record_count: int,
+    soc_classification: str | None = None,
+    soc_confidence: float | None = None,
+    soc_narrative: str | None = None,
+) -> None:
+    """Tamper-evident cryptographic logging for all database access attempts."""
+    timestamp = datetime.now(timezone.utc).isoformat()
+    query_fingerprint = hashlib.sha256(query_str.encode("utf-8")).hexdigest()
+    with get_connection() as conn:
+        row = conn.execute("SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1").fetchone()
+        prev_hash = row["row_hash"] if row else "HEISENBERG_GENESIS"
+        
+        data_to_hash = (
+            timestamp + caller_ip + query_fingerprint + tier + 
+            str(record_count) + (soc_classification or "") + 
+            str(soc_confidence or "") + (soc_narrative or "") + prev_hash
+        )
+        row_hash = hashlib.sha256(data_to_hash.encode("utf-8")).hexdigest()
+        
+        conn.execute(
+            """
+            INSERT INTO audit_log (
+                timestamp, caller_ip, query_fingerprint, tier, record_count,
+                soc_classification, soc_confidence, soc_narrative, prev_hash, row_hash
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp, caller_ip, query_fingerprint, tier, record_count,
+                soc_classification, soc_confidence, soc_narrative, prev_hash, row_hash
+            )
+        )
+        conn.commit()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/query — main endpoint
 # ─────────────────────────────────────────────────────────────────────────────
@@ -718,7 +757,10 @@ async def query_records(
     )
 
     # ── 2. Handle empty result set ─────────────────────────────────────────
+    query_str = sql if sql else (f"id={id}" if id else f"limit={limit}&offset={offset}")
+
     if count == 0:
+        _write_audit_log(caller_ip, query_str, "SURGICAL", count, soc_narrative="No records matched the query.")
         return JSONResponse(
             _make_envelope(
                 tier=QueryTier.SURGICAL,
@@ -748,6 +790,7 @@ async def query_records(
             decrypted.append(row)
 
         log.info("SURGICAL response: %d record(s) cleanly decrypted.", count)
+        _write_audit_log(caller_ip, query_str, "SURGICAL", count, soc_narrative="Clean plaintext lookup.")
         return JSONResponse(
             _make_envelope(
                 tier=tier,
@@ -778,6 +821,12 @@ async def query_records(
                 "[SOC] ELEVATED→CRITICAL escalation for %s — LLM narrative: %.120s",
                 caller_ip, intent_result.get("narrative", ""),
             )
+            _write_audit_log(
+                caller_ip, query_str, "CRITICAL", count,
+                soc_classification=intent_result.get("classification"),
+                soc_confidence=intent_result.get("confidence"),
+                soc_narrative=intent_result.get("narrative", "Escalated to garbage payloads.")
+            )
             return JSONResponse(
                 _make_envelope(
                     tier=QueryTier.CRITICAL,
@@ -805,6 +854,12 @@ async def query_records(
             intent_result.get("llm_backend"),
         )
         scrubbed_records = intent_result.pop("records")
+        _write_audit_log(
+            caller_ip, query_str, "SURGICAL", count,
+            soc_classification=intent_result.get("classification"),
+            soc_confidence=intent_result.get("confidence"),
+            soc_narrative=intent_result.get("narrative", "Partial redaction approved.")
+        )
         return JSONResponse(
             _make_envelope(
                 tier=tier,
@@ -826,6 +881,7 @@ async def query_records(
             "Nonce: %s",
             caller_ip, count, request_nonce.hex(),
         )
+        _write_audit_log(caller_ip, query_str, "CRITICAL", count, soc_narrative="Mass surveillance blocked via cryptographic obfuscation.")
 
         return JSONResponse(
             _make_envelope(
@@ -842,6 +898,47 @@ async def query_records(
                 record_count=count,
             )
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/audit — audit log retrieval
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/audit", tags=["vault"], summary="Get audit logs")
+async def get_audit_logs() -> list[dict]:
+    """Returns the last 100 audit entries as JSON, newest first."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT 100").fetchall()
+    return [dict(r) for r in rows]
+
+@app.get("/api/audit/verify", tags=["vault"], summary="Verify audit log integrity")
+async def verify_audit_logs() -> dict:
+    """Verifies that the cryptographic audit log chain has not been tampered with."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT * FROM audit_log ORDER BY id ASC").fetchall()
+    
+    total_entries = len(rows)
+    if not rows:
+        return {"chain_valid": True, "total_entries": 0, "first_broken_at": None}
+        
+    expected_prev = "HEISENBERG_GENESIS"
+    for r in rows:
+        if r["prev_hash"] != expected_prev:
+            return {"chain_valid": False, "total_entries": total_entries, "first_broken_at": r["id"]}
+            
+        data_to_hash = (
+            r["timestamp"] + r["caller_ip"] + r["query_fingerprint"] + r["tier"] + 
+            str(r["record_count"]) + (r["soc_classification"] or "") + 
+            str(r["soc_confidence"] or "") + (r["soc_narrative"] or "") + r["prev_hash"]
+        )
+        computed_hash = hashlib.sha256(data_to_hash.encode("utf-8")).hexdigest()
+        
+        if computed_hash != r["row_hash"]:
+            return {"chain_valid": False, "total_entries": total_entries, "first_broken_at": r["id"]}
+            
+        expected_prev = r["row_hash"]
+        
+    return {"chain_valid": True, "total_entries": total_entries, "first_broken_at": None}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
