@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: heisenberg-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # Mount points and secrets
+      - VAULT_MASTER_KEY=${VAULT_MASTER_KEY}
+      
+      # Local LLM integration
+      - OLLAMA_MODEL=${OLLAMA_MODEL}
+      # If using Ollama on the host machine via Docker, use host.docker.internal
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - LM_STUDIO_MODEL=${LM_STUDIO_MODEL}
+      - LM_STUDIO_HOST=${LM_STUDIO_HOST:-http://host.docker.internal:1234}
+      
+      # Remote API Keys
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - KIMI_API_KEY=${KIMI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./vault.db:/app/vault.db
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Pass the backend URL into the Vite build process.
+        # This determines where the React app will send fetch requests.
+        - VITE_API_BASE=http://localhost:8000
+    container_name: heisenberg-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend

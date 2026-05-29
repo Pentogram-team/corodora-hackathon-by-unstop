@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --glow-green: 0 0 20px rgba(52, 211, 153, 0.3), 0 0 40px rgba(52, 211, 153, 0.1);
+  --glow-red:   0 0 20px rgba(239, 68, 68, 0.4),  0 0 60px rgba(239, 68, 68, 0.15);
+  --glow-cyan:  0 0 12px rgba(34, 211, 238, 0.25);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background-color: #0f172a;
+  color: #e2e8f0;
+  font-family: 'JetBrains Mono', monospace;
+  overflow-x: hidden;
+}
+
+/* ── Scrollbar ──────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #1e293b; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* ── Scan-line overlay (mutation mode) ─────────── */
+@keyframes scanline {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+.scanline::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(239, 68, 68, 0.04) 50%,
+    transparent 100%
+  );
+  animation: scanline 3s linear infinite;
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── Banner flicker ─────────────────────────────── */
+@keyframes flicker {
+  0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% { opacity: 1; }
+  20%, 24%, 55% { opacity: 0.6; }
+}
+.flicker { animation: flicker 3s infinite; }
+
+/* ── Glow utilities ─────────────────────────────── */
+.glow-green { box-shadow: var(--glow-green); }
+.glow-red   { box-shadow: var(--glow-red); }
+.glow-cyan  { box-shadow: var(--glow-cyan); }
+.text-glow-green { text-shadow: 0 0 10px rgba(52, 211, 153, 0.7); }
+.text-glow-red   { text-shadow: 0 0 10px rgba(239, 68, 68, 0.9), 0 0 20px rgba(239,68,68,0.5); }
+.text-glow-cyan  { text-shadow: 0 0 8px rgba(34, 211, 238, 0.5); }
+
+/* ── Panel glass ────────────────────────────────── */
+.glass {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ── Tier badges ────────────────────────────────── */
+.tier-surgical { @apply bg-emerald-950 text-emerald-400 border border-emerald-500/40; }
+.tier-elevated { @apply bg-amber-950  text-amber-400  border border-amber-500/40; }
+.tier-critical { @apply bg-red-950    text-red-400    border border-red-500/40; }
+
+/* ── JSON syntax tokens ─────────────────────────── */
+.json-key    { color: #67e8f9; }   /* cyan-300 */
+.json-string { color: #fcd34d; }   /* amber-300 */
+.json-number { color: #c084fc; }   /* purple-400 */
+.json-bool   { color: #f472b6; }   /* pink-400 */
+.json-null   { color: #64748b; }   /* slate-500 */
+
+/* ── Execute button pulse ───────────────────────── */
+@keyframes btn-ready {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,211,238,0); }
+  50%       { box-shadow: 0 0 0 4px rgba(34,211,238,0.15); }
+}
+.btn-pulse:not(:disabled) { animation: btn-ready 2s ease-in-out infinite; }
+
+/* ── Typing cursor ──────────────────────────────── */
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.cursor::after {
+  content: '▌';
+  animation: blink 1s step-end infinite;
+  color: #22d3ee;
+  margin-left: 2px;
+}
