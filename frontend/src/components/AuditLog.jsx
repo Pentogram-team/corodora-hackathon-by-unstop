@@ -137,6 +137,37 @@ function LogEntry({ entry, isFirst }) {
   )
 }
 
+function exportLog(entries, format) {
+  let content, filename, type
+
+  if (format === 'json') {
+    content = JSON.stringify(entries, null, 2)
+    filename = `heisenberg-audit-${Date.now()}.json`
+    type = 'application/json'
+  } else {
+    // CSV
+    const headers = 'timestamp,tier,record_count,classification,confidence,narrative'
+    const rows = entries.map(e =>
+      [`"${e.ts}"`, e.tier, e.recordCount ?? '',
+       `"${e.classification ?? ''}"`,
+       e.confidence ?? '',
+       `"${(e.narrative ?? '').replace(/"/g, "'")}"`
+      ].join(',')
+    )
+    content = [headers, ...rows].join('\n')
+    filename = `heisenberg-audit-${Date.now()}.csv`
+    type = 'text/csv'
+  }
+
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function AuditLog({ log }) {
   const [activeTab, setActiveTab] = useState('SESSION')
   const [persistentLog, setPersistentLog] = useState([])
@@ -207,6 +238,20 @@ export default function AuditLog({ log }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => exportLog(activeEntries, 'csv')}
+              className="px-2 py-0.5 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-400 transition-colors border border-slate-600"
+              title="Export as CSV"
+            >
+              ↓ CSV
+            </button>
+            <button
+              onClick={() => exportLog(activeEntries, 'json')}
+              className="px-2 py-0.5 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-400 transition-colors border border-slate-600"
+              title="Export as JSON"
+            >
+              ↓ JSON
+            </button>
             <button onClick={verifyChain} className="px-2 py-0.5 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors border border-slate-600">
               VERIFY CHAIN
             </button>
