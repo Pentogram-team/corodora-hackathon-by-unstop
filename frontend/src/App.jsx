@@ -7,7 +7,7 @@ import AuditLog from './components/AuditLog'
 import ThreatGraph from './components/ThreatGraph'
 import LoginScreen from './components/LoginScreen'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
 
 export default function App() {
   const [authed, setAuthed] = useState(!!sessionStorage.getItem('vault_admin_token'))
@@ -129,6 +129,10 @@ export default function App() {
     }
   }, [response]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const runDemo = useCallback(async () => {
+    await fetch(`${API_BASE}/api/demo/run`, { method: 'POST' })
+  }, [])
+
   if (!authed) {
     return <LoginScreen onLogin={() => setAuthed(true)} />
   }
@@ -137,7 +141,7 @@ export default function App() {
     <div className={`min-h-screen bg-slate-900 text-slate-100 flex flex-col select-none
                      ${isMutation ? 'scanline' : ''}`}>
 
-      <Header connected={connected} isMutation={isMutation} wsLive={wsLive} resetDemo={() => setAuditLog([])} />
+      <Header connected={connected} isMutation={isMutation} wsLive={wsLive} resetDemo={() => setAuditLog([])} onRunDemo={runDemo} />
 
       <StatusBanner isMutation={isMutation} loading={loading} response={response} />
 

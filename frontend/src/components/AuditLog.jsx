@@ -144,7 +144,7 @@ export default function AuditLog({ log }) {
 
   const fetchPersistentLog = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/audit', {
+      const res = await fetch('http://127.0.0.1:8000/api/audit', {
         headers: { 'Authorization': `Bearer ${sessionStorage.getItem('vault_admin_token')}` }
       })
       if (!res.ok) return
@@ -175,7 +175,7 @@ export default function AuditLog({ log }) {
 
   const verifyChain = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/audit/verify', {
+      const res = await fetch('http://127.0.0.1:8000/api/audit/verify', {
         headers: { 'Authorization': `Bearer ${sessionStorage.getItem('vault_admin_token')}` }
       })
       if (!res.ok) return

@@ -65,7 +65,7 @@ except ImportError:
     _HAS_OPENAI = False
 
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -826,6 +826,57 @@ def login(req: LoginRequest):
         )
         return {"token": token, "expires_in": 3600}
     raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/api/demo/run", tags=["vault"], summary="Run 3-act demo simulation")
+async def run_demo_simulation(background_tasks: BackgroundTasks):
+    """
+    Triggers the 3-act Heisenberg demo automatically:
+      Act 1 (t=0s):   SURGICAL query - 1 record, clean decrypt
+      Act 2 (t=2.5s): ELEVATED query - 7 records, SOC analysis
+      Act 3 (t=5s):   CRITICAL sweep - 30 records, full mutation
+    Each act broadcasts a WebSocket event so the dashboard updates live.
+    """
+    async def _run_acts():
+        # Act 1 - Surgical
+        rows = fetch_records_paginated(offset=0, limit=1, decrypt=True)
+        await ws_manager.broadcast({
+            "type": "AUDIT_EVENT", "tier": "SURGICAL",
+            "record_count": 1, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "caller_ip": "demo-runner", "soc_classification": None,
+            "soc_narrative": "Targeted clinical lookup — single patient record.",
+            "is_mutation": False
+        })
+        await asyncio.sleep(2.5)
+
+        # Act 2 - Elevated
+        rows7 = fetch_records_paginated(offset=0, limit=7, decrypt=False)
+        await ws_manager.broadcast({
+            "type": "AUDIT_EVENT", "tier": "ELEVATED",
+            "record_count": 7, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "caller_ip": "demo-runner", "soc_classification": "SURGICAL",
+            "soc_narrative": "SOC Analyst: Query scope is moderate. 7 records requested — pattern consistent with a targeted department audit. Confidence: 72%.",
+            "is_mutation": False
+        })
+        await asyncio.sleep(2.5)
+
+        # Act 3 - Critical sweep
+        rows30 = fetch_records_paginated(offset=0, limit=30, decrypt=False)
+        nonce = secrets.token_bytes(16)
+        obfuscated = _apply_critical_obfuscation(rows30, nonce)
+        _write_audit_log("demo-runner", "SELECT * FROM sensitive_records LIMIT 30",
+                         "CRITICAL", 30, "MASS_SURVEILLANCE", 0.97,
+                         "MASS SURVEILLANCE DETECTED: Query requests 30 records — 60% of the vault. Heisenberg countermeasure activated. Ephemeral key mutation engaged.")
+        await ws_manager.broadcast({
+            "type": "AUDIT_EVENT", "tier": "CRITICAL",
+            "record_count": 30, "timestamp": datetime.now(timezone.utc).isoformat(),
+            "caller_ip": "NSA-DEMO-RUNNER", "soc_classification": "MASS_SURVEILLANCE",
+            "soc_narrative": "MASS SURVEILLANCE DETECTED: 30 records requested — 60% vault sweep. Heisenberg countermeasure activated. Caller received cryptographic garbage.",
+            "is_mutation": True
+        })
+
+    background_tasks.add_task(_run_acts)
+    return {"status": "demo_started", "acts": 3, "duration_seconds": 5}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

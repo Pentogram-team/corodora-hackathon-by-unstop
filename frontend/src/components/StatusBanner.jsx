@@ -7,7 +7,7 @@ export default function StatusBanner({ isMutation, loading, response }) {
   const runBenchmark = async () => {
     setBenchmarking(true)
     try {
-      const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+      const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
       const res = await fetch(`${API_BASE}/api/benchmark`)
       const data = await res.json()
       setBenchData(data)

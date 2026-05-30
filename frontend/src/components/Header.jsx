@@ -1,4 +1,4 @@
-export default function Header({ connected, isMutation, resetDemo, wsLive }) {
+export default function Header({ connected, isMutation, resetDemo, wsLive, onRunDemo }) {
   return (
     <header className="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md z-50 shrink-0">
 
@@ -35,6 +35,16 @@ export default function Header({ connected, isMutation, resetDemo, wsLive }) {
           <span className="px-1.5 py-0.5 rounded bg-amber-950  text-amber-400  border border-amber-500/30">ELEVATED</span>
           <span className="px-1.5 py-0.5 rounded bg-red-950    text-red-400    border border-red-500/30">CRITICAL</span>
         </div>
+
+        {/* RUN DEMO button */}
+        {onRunDemo && (
+          <button
+            onClick={onRunDemo}
+            className="bg-violet-700 border border-violet-500/50 text-violet-200 text-[10px] font-mono px-3 py-1 rounded hover:bg-violet-600 transition-colors flex items-center gap-1.5"
+          >
+            <span className="animate-pulse">▶</span> RUN DEMO
+          </button>
+        )}
 
         {/* RESET DEMO button */}
         {resetDemo && (
