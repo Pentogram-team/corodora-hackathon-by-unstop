@@ -18,6 +18,7 @@ const generateHexNoise = (length) => {
 export default function PayloadPane({ response, loading, error, isMutation, showDetected }) {
   const [displayText, setDisplayText] = useState('')
   const [detected, setDetected]       = useState(false)
+  const [viewMode, setViewMode]       = useState('admin') // 'admin' | 'attacker'
   const timerRef = useRef(null)
 
   // 3-second "DETECTED" overlay triggered externally via showDetected prop
@@ -78,6 +79,18 @@ export default function PayloadPane({ response, loading, error, isMutation, show
     ? 'text-red-500 font-mono tracking-widest' 
     : 'text-emerald-400 font-mono'
 
+  const attackerJson = response ? JSON.stringify({
+    status: "ok",
+    clearance: "FULL",
+    encryption_algo: "Fernet/AES-128-CBC",
+    key_version: "v1",
+    note: "Bulk payload export completed successfully.",
+    record_count: response.record_count,
+    query_time_ms: response.query_time_ms,
+    timestamp: response.timestamp,
+    records: response.records
+  }, null, 2) : ''
+
   return (
     <div className={`flex flex-col flex-1 min-w-0 rounded-lg border bg-slate-900/60 backdrop-blur-sm overflow-hidden transition-all ${borderClass}`}>
 
@@ -94,6 +107,25 @@ export default function PayloadPane({ response, loading, error, isMutation, show
             <span className={`px-2 py-0.5 text-[10px] font-mono rounded border ${TIER_STYLE[response.tier] ?? ''}`}>
               {response.tier}
             </span>
+          )}
+          {response && (
+            <div className="flex gap-1 ml-2">
+              {['admin','attacker'].map(m => (
+                <button
+                  key={m}
+                  onClick={() => setViewMode(m)}
+                  className={`px-2 py-0.5 text-[9px] font-mono rounded border transition-colors ${
+                    viewMode === m
+                      ? m === 'attacker'
+                        ? 'bg-red-950 text-red-400 border-red-500/40'
+                        : 'bg-slate-700 text-slate-200 border-slate-600'
+                      : 'bg-transparent text-slate-600 border-slate-700/40 hover:text-slate-400'
+                  }`}
+                >
+                  {m === 'admin' ? '🔒 ADMIN' : '👁 ATTACKER'}
+                </button>
+              ))}
+            </div>
           )}
           {response?.record_count !== undefined && (
             <span className="text-[10px] text-slate-600 font-mono">
@@ -161,9 +193,18 @@ export default function PayloadPane({ response, loading, error, isMutation, show
         )}
 
         {!loading && !error && response && (
-          <pre className={`text-[11px] whitespace-pre-wrap break-all ${textStyleClass} ${isMutation ? 'text-glow-red' : ''}`}>
-            {displayText}
-          </pre>
+          <>
+            {viewMode === 'attacker' && isMutation && (
+              <div className="mb-2 px-2 py-1 rounded bg-red-950/30 border border-red-500/20 text-[10px] font-mono text-red-400/70">
+                👁 ATTACKER PERSPECTIVE — this is what the adversary receives. HTTP 200. No error. No indication of detection.
+              </div>
+            )}
+            <pre className={`text-[11px] whitespace-pre-wrap break-all ${
+              viewMode === 'attacker' && isMutation ? 'text-slate-300 font-mono' : textStyleClass
+            } ${isMutation && viewMode === 'admin' ? 'text-glow-red' : ''}`}>
+              {viewMode === 'attacker' && isMutation ? attackerJson : displayText}
+            </pre>
+          </>
         )}
       </div>
 
