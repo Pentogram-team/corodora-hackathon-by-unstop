@@ -16,6 +16,9 @@ export default function App() {
   const [error, setError]         = useState(null)
   const [auditLog, setAuditLog]   = useState([])
   const [connected, setConnected] = useState(null)   // null = unknown
+  const [showDetected, setShowDetected] = useState(0) // bump to re-trigger overlay
+  const [wsLive, setWsLive]       = useState(false)  // WebSocket connected
+  const isGuestMode = useRef(false)
 
   const isMutation =
     response?.tier === 'CRITICAL' ||
@@ -26,6 +29,40 @@ export default function App() {
     fetch(`${API_BASE}/api/status`)
       .then(r => r.ok ? setConnected(true) : setConnected(false))
       .catch(() => setConnected(false))
+  }, [])
+
+  /* ── WebSocket — real-time audit event push ─────── */
+  useEffect(() => {
+    const wsUrl = API_BASE.replace(/^http/, 'ws') + '/ws/events'
+    const ws = new WebSocket(wsUrl)
+
+    ws.onopen  = () => setWsLive(true)
+    ws.onclose = () => setWsLive(false)
+    ws.onerror = () => setWsLive(false)
+
+    ws.onmessage = (e) => {
+      try {
+        const event = JSON.parse(e.data)
+        if (event.type === 'AUDIT_EVENT') {
+          setAuditLog(prev => [{
+            id:             Date.now(),
+            query:          'external-trigger',
+            tier:           event.tier,
+            recordCount:    event.record_count,
+            ts:             new Date().toLocaleTimeString(),
+            isMutation:     event.is_mutation,
+            narrative:      event.soc_narrative,
+            classification: event.soc_classification,
+            source:         'LIVE',
+          }, ...prev.slice(0, 99)])
+          if (event.is_mutation) {
+            setResponse({ tier: 'CRITICAL', record_count: event.record_count })
+          }
+        }
+      } catch (_) {}
+    }
+
+    return () => ws.close()
   }, [])
 
   /* ── Execute query ──────────────────────────────── */
@@ -78,6 +115,20 @@ export default function App() {
     }
   }, [])
 
+  /* ── Guest execute (triggers detection overlay for CRITICAL) ── */
+  const guestExecute = useCallback(async (params) => {
+    isGuestMode.current = true
+    await executeQuery(params)
+    isGuestMode.current = false
+  }, [executeQuery])
+
+  /* ── Watch for CRITICAL result in guest mode ──────────────── */
+  useEffect(() => {
+    if (isGuestMode.current && isMutation) {
+      setShowDetected(n => n + 1)
+    }
+  }, [response]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!authed) {
     return <LoginScreen onLogin={() => setAuthed(true)} />
   }
@@ -86,13 +137,13 @@ export default function App() {
     <div className={`min-h-screen bg-slate-900 text-slate-100 flex flex-col select-none
                      ${isMutation ? 'scanline' : ''}`}>
 
-      <Header connected={connected} isMutation={isMutation} />
+      <Header connected={connected} isMutation={isMutation} wsLive={wsLive} resetDemo={() => setAuditLog([])} />
 
       <StatusBanner isMutation={isMutation} loading={loading} response={response} />
 
       <ThreatGraph log={auditLog} />
 
-      <QueryBuilder onExecute={executeQuery} loading={loading} />
+      <QueryBuilder onExecute={executeQuery} onGuestExecute={guestExecute} loading={loading} />
 
       {/* ── Split pane ──────────────────────────────── */}
       <div className="flex flex-1 gap-3 p-3 pt-0 overflow-hidden min-h-0" style={{ height: 'calc(100vh - 220px)' }}>
@@ -101,6 +152,7 @@ export default function App() {
           loading={loading}
           error={error}
           isMutation={isMutation}
+          showDetected={showDetected}
         />
         <AuditLog log={auditLog} />
       </div>

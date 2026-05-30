@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: heisenberg-vault-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: VAULT_MASTER_KEY
+        generateValue: true
+      - key: VAULT_JWT_SECRET
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+    healthCheckPath: /api/status

@@ -1,4 +1,4 @@
-export default function Header({ connected, isMutation }) {
+export default function Header({ connected, isMutation, resetDemo, wsLive }) {
   return (
     <header className="flex items-center justify-between px-5 py-3 border-b border-slate-800 bg-slate-950/80 backdrop-blur-md z-50 shrink-0">
 
@@ -34,6 +34,26 @@ export default function Header({ connected, isMutation }) {
           <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-500/30">SURGICAL</span>
           <span className="px-1.5 py-0.5 rounded bg-amber-950  text-amber-400  border border-amber-500/30">ELEVATED</span>
           <span className="px-1.5 py-0.5 rounded bg-red-950    text-red-400    border border-red-500/30">CRITICAL</span>
+        </div>
+
+        {/* RESET DEMO button */}
+        {resetDemo && (
+          <button
+            onClick={resetDemo}
+            className="bg-slate-800 border border-slate-700 text-slate-400 text-[10px] font-mono px-2 py-1 rounded hover:bg-slate-700 transition-colors"
+          >
+            ↺ RESET DEMO
+          </button>
+        )}
+
+        {/* WebSocket LIVE indicator */}
+        <div className={`flex items-center gap-1.5 px-2 py-1 rounded border text-[10px] font-mono transition-colors
+          ${wsLive
+            ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-400'
+            : 'border-slate-700 bg-slate-800/40 text-slate-600'
+          }`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${wsLive ? 'bg-emerald-400 animate-pulse' : 'bg-slate-600'}`} />
+          LIVE
         </div>
 
         {/* Connection status */}

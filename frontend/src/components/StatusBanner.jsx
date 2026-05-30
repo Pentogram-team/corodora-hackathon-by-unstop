@@ -1,6 +1,23 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 export default function StatusBanner({ isMutation, loading, response }) {
+  const [benchmarking, setBenchmarking] = useState(false)
+  const [benchData, setBenchData] = useState(null)
+
+  const runBenchmark = async () => {
+    setBenchmarking(true)
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+      const res = await fetch(`${API_BASE}/api/benchmark`)
+      const data = await res.json()
+      setBenchData(data)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setBenchmarking(false)
+    }
+  }
+
   const prevMutation = useRef(false)
   const audioCtx = useRef(null)
 
@@ -116,8 +133,26 @@ export default function StatusBanner({ isMutation, loading, response }) {
               TIER: {tier}
             </div>
           )}
+          <button 
+            onClick={runBenchmark}
+            disabled={benchmarking}
+            className="bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] font-mono px-2 py-1 rounded transition-colors disabled:opacity-50"
+          >
+            {benchmarking ? 'BENCHMARKING...' : '⚡ BENCHMARK'}
+          </button>
         </div>
       </div>
+
+      {benchData && (
+        <div className="animate-slide-down mt-2 px-5 py-2.5 rounded-lg border border-slate-700 bg-slate-800/60 flex items-center justify-between">
+          <div className="text-[10px] font-mono text-slate-300">
+            SURGICAL avg: {benchData.surgical.avg_ms}ms | CRITICAL avg: {benchData.critical.avg_ms}ms
+          </div>
+          <div className="text-[10px] font-mono text-emerald-400 font-bold tracking-widest">
+            VERDICT: {benchData.surgical.verdict}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

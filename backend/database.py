@@ -22,8 +22,20 @@ import os
 import sqlite3
 import hashlib
 import textwrap
+import re
 from pathlib import Path
 from cryptography.fernet import Fernet, InvalidToken
+
+POSTGRES_URL = os.environ.get("POSTGRES_URL")
+if POSTGRES_URL:
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+        DatabaseError = psycopg2.Error
+    except ImportError:
+        raise ImportError("psycopg2 is required when POSTGRES_URL is set. Run: pip install psycopg2-binary")
+else:
+    DatabaseError = sqlite3.Error
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -109,11 +121,83 @@ def get_current_fernet() -> Fernet:
 # Database bootstrap
 # ---------------------------------------------------------------------------
 
-def get_connection() -> sqlite3.Connection:
-    """Open (or create) vault.db and return a connection with row_factory set."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
+class PostgresCursorWrapper:
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def _convert_query(self, query):
+        query = query.replace("?", "%s")
+        query = re.sub(r':(\w+)', r'%(\1)s', query)
+        return query
+
+    def execute(self, query, params=None):
+        query = self._convert_query(query)
+        if params is not None:
+            self.cursor.execute(query, params)
+        else:
+            self.cursor.execute(query)
+        return self
+
+    def executemany(self, query, params=None):
+        query = self._convert_query(query)
+        if params is not None:
+            self.cursor.executemany(query, params)
+        else:
+            self.cursor.executemany(query)
+        return self
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    def close(self):
+        self.cursor.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+class PostgresConnectionWrapper:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def execute(self, query, params=None):
+        cursor = self.cursor()
+        return cursor.execute(query, params)
+
+    def executemany(self, query, params=None):
+        cursor = self.cursor()
+        return cursor.executemany(query, params)
+
+    def cursor(self):
+        return PostgresCursorWrapper(self.conn.cursor(cursor_factory=RealDictCursor))
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+    def __enter__(self):
+        self.conn.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self.conn.__exit__(exc_type, exc_val, exc_tb)
+
+def get_connection():
+    """Open vault.db or Postgres and return a connection with row_factory set."""
+    if POSTGRES_URL:
+        conn = psycopg2.connect(POSTGRES_URL)
+        return PostgresConnectionWrapper(conn)
+    else:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        return conn
 
 
 def init_db() -> None:
@@ -122,34 +206,64 @@ def init_db() -> None:
     then seed it with 50 mock profiles if the table is empty.
     """
     with get_connection() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sensitive_records (
-                id                  INTEGER PRIMARY KEY,
-                name                TEXT    NOT NULL,
-                email               TEXT    NOT NULL UNIQUE,
-                medical_record_id   TEXT    NOT NULL UNIQUE,
-                protected_payload   TEXT    NOT NULL
+        if POSTGRES_URL:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sensitive_records (
+                    id                  SERIAL PRIMARY KEY,
+                    name                TEXT    NOT NULL,
+                    email               TEXT    NOT NULL UNIQUE,
+                    medical_record_id   TEXT    NOT NULL UNIQUE,
+                    protected_payload   TEXT    NOT NULL
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS audit_log (
-                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp           TEXT    NOT NULL,
-                caller_ip           TEXT    NOT NULL,
-                query_fingerprint   TEXT    NOT NULL,
-                tier                TEXT    NOT NULL,
-                record_count        INTEGER NOT NULL,
-                soc_classification  TEXT,
-                soc_confidence      REAL,
-                soc_narrative       TEXT,
-                prev_hash           TEXT    NOT NULL,
-                row_hash            TEXT    NOT NULL
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id                  SERIAL PRIMARY KEY,
+                    timestamp           TEXT    NOT NULL,
+                    caller_ip           TEXT    NOT NULL,
+                    query_fingerprint   TEXT    NOT NULL,
+                    tier                TEXT    NOT NULL,
+                    record_count        INTEGER NOT NULL,
+                    soc_classification  TEXT,
+                    soc_confidence      REAL,
+                    soc_narrative       TEXT,
+                    prev_hash           TEXT    NOT NULL,
+                    row_hash            TEXT    NOT NULL
+                )
+                """
             )
-            """
-        )
+        else:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sensitive_records (
+                    id                  INTEGER PRIMARY KEY,
+                    name                TEXT    NOT NULL,
+                    email               TEXT    NOT NULL UNIQUE,
+                    medical_record_id   TEXT    NOT NULL UNIQUE,
+                    protected_payload   TEXT    NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp           TEXT    NOT NULL,
+                    caller_ip           TEXT    NOT NULL,
+                    query_fingerprint   TEXT    NOT NULL,
+                    tier                TEXT    NOT NULL,
+                    record_count        INTEGER NOT NULL,
+                    soc_classification  TEXT,
+                    soc_confidence      REAL,
+                    soc_narrative       TEXT,
+                    prev_hash           TEXT    NOT NULL,
+                    row_hash            TEXT    NOT NULL
+                )
+                """
+            )
         conn.commit()
 
         row_count = conn.execute("SELECT COUNT(*) FROM sensitive_records").fetchone()[0]
@@ -157,7 +271,7 @@ def init_db() -> None:
             _seed_records(conn)
 
 
-def _seed_records(conn: sqlite3.Connection) -> None:
+def _seed_records(conn) -> None:
     """Insert 50 deterministic mock user profiles into sensitive_records."""
     print("[VAULT] Seeding 50 mock profiles into sensitive_records …")
 

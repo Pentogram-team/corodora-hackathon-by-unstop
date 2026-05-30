@@ -15,9 +15,18 @@ const generateHexNoise = (length) => {
   return result
 }
 
-export default function PayloadPane({ response, loading, error, isMutation }) {
-  const [displayText, setDisplayText] = useState("")
+export default function PayloadPane({ response, loading, error, isMutation, showDetected }) {
+  const [displayText, setDisplayText] = useState('')
+  const [detected, setDetected]       = useState(false)
   const timerRef = useRef(null)
+
+  // 3-second "DETECTED" overlay triggered externally via showDetected prop
+  useEffect(() => {
+    if (!showDetected) return
+    setDetected(true)
+    const t = setTimeout(() => setDetected(false), 3000)
+    return () => clearTimeout(t)
+  }, [showDetected])
 
   useEffect(() => {
     // Clear any existing intervals on new render
@@ -107,6 +116,22 @@ export default function PayloadPane({ response, loading, error, isMutation }) {
 
       {/* ── Body ────────────────────────────────────── */}
       <div className="flex-1 overflow-auto min-h-0 relative p-4">
+
+        {/* GUEST MODE: Detection Overlay */}
+        {detected && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+            <div className="text-center px-6 animate-pulse">
+              <div className="text-red-400 text-xl font-mono font-bold tracking-widest leading-loose"
+                   style={{ textShadow: '0 0 30px rgba(239,68,68,0.9)' }}>
+                YOUR OBSERVATION WAS DETECTED.
+              </div>
+              <div className="text-red-500 text-lg font-mono font-bold tracking-widest"
+                   style={{ textShadow: '0 0 20px rgba(239,68,68,0.7)' }}>
+                THE VAULT MADE YOU BLIND.
+              </div>
+            </div>
+          </div>
+        )}
         {loading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/80 z-10 backdrop-blur-sm">
             <div className="w-12 h-12 border-2 border-slate-700 border-t-cyan-400 rounded-full animate-spin mb-4" />
