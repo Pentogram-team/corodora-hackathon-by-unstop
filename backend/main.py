@@ -33,6 +33,7 @@ Run:
 """
 
 from __future__ import annotations
+from collections import deque
 
 import hashlib
 import hmac
@@ -80,6 +81,48 @@ from backend.database import (
     init_db,
     DatabaseError,
 )
+
+
+class RateTracker:
+    """
+    Sliding-window rate detector for temporal mass-surveillance attacks.
+    Catches attackers who stay under single-query thresholds by spreading
+    requests over time.
+    """
+    def __init__(self, window_seconds: int = 60, max_queries: int = 5, max_records: int = 15):
+        self.window = window_seconds
+        self.max_queries = max_queries
+        self.max_records = max_records
+        self._store: dict[str, deque] = {}  # ip -> deque of (timestamp, record_count)
+
+    def record(self, ip: str, record_count: int) -> bool:
+        """
+        Record a query and return True if the IP is showing temporal attack patterns.
+        """
+        now = time.time()
+        if ip not in self._store:
+            self._store[ip] = deque()
+
+        q = self._store[ip]
+        # Evict entries outside the window
+        while q and now - q[0][0] > self.window:
+            q.popleft()
+
+        q.append((now, record_count))
+
+        # Detect pattern: too many queries OR too many total records in window
+        total_records = sum(r for _, r in q)
+        is_pattern = len(q) >= self.max_queries or total_records >= self.max_records
+
+        if is_pattern:
+            log.warning(
+                "[RATE] Temporal pattern detected from %s — %d queries, %d records in %ds window",
+                ip, len(q), total_records, self.window
+            )
+        return is_pattern
+
+_rate_tracker = RateTracker()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Database & Application Setup
@@ -974,6 +1017,14 @@ async def query_records(
 
     # ── 2. Handle empty result set ─────────────────────────────────────────
     query_str = sql if sql else (f"id={id}" if id else f"limit={limit}&offset={offset}")
+
+    # Temporal pattern detection — catches incremental sweeps under the threshold
+    is_temporal_attack = _rate_tracker.record(caller_ip, count)
+    if is_temporal_attack and tier != QueryTier.CRITICAL:
+        log.warning("[RATE] Escalating %s from %s to CRITICAL (temporal pattern)", caller_ip, tier)
+        tier = QueryTier.CRITICAL
+        # Add a flag so the audit log notes the reason
+        query_str = f"[PATTERN]{query_str}"
 
     if count == 0:
         _write_audit_log(caller_ip, query_str, "SURGICAL", count, soc_narrative="No records matched the query.")
