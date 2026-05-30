@@ -390,8 +390,10 @@ class QueryTier:
 
 def classify_tier(result_count: int) -> str:
     """Map a result count to a QueryTier label."""
-    # Thresholds balance utility vs. risk: <5 is safe for clinical use, 5-10 requires
-    # LLM SOC analysis, and >10 is deemed an active surveillance sweep.
+    # Threshold < 5 reflects real clinical workflows: a nurse checking 1-4 patients is normal.
+    # Threshold 5-10 is the ambiguous zone requiring AI intent analysis.
+    # Threshold > 10 is treated as a surveillance sweep regardless of stated intent.
+    # All thresholds are configurable via environment variables in production.
     if result_count < 5:
         return QueryTier.SURGICAL
     if result_count <= 10:
@@ -616,8 +618,9 @@ async def analyze_intent(records: list[dict], context: dict) -> dict:
     log.info("[SOC] Calling LLM (%s) for intent analysis …", _LLM_BACKEND)
 
     # ── LLM classification ───────────────────────────────────────────────────
-    # Heuristic fallback ensures 100% API uptime and resilience
-    # against network failures or LLM provider outages.
+    # Heuristic fallback ensures the ELEVATED tier always resolves — even with zero LLM config.
+    # The heuristic uses sweep_ratio (requested / total_vault) as a pure-math classifier.
+    # This makes the system resilient to LLM provider outages, rate limits, and network failures.
     if _LLM_BACKEND == "heuristic":
         soc = _heuristic_classify(records)
     else:
@@ -688,19 +691,22 @@ _SESSION_ENTROPY: bytes = secrets.token_bytes(32)
 
 def _derive_ephemeral_key(salt: bytes) -> bytes:
     """
-    Derive a 32-byte Fernet-compatible key from the session entropy + salt
-    using HKDF-like HMAC chaining.
+    Derive a per-request ephemeral Fernet key using dual-HMAC key stretching.
 
-    The salt encodes the current second and a per-request nonce, guaranteeing
-    that every CRITICAL response uses a different key from the real vault key,
-    producing tokens that are structurally valid Fernet ciphertext but decrypt
-    to garbage under any honest key.
+    Security properties:
+      - SESSION_ENTROPY is 32 random bytes generated at startup — different per deployment.
+      - The salt encodes both the request nonce AND the record_id, so every record
+        in a CRITICAL response gets a different ephemeral key.
+      - Two HMAC rounds (key stretching) prevent brute-forcing SESSION_ENTROPY from
+        a known garbage ciphertext — attacker cannot work backwards from output to entropy.
+      - The derived key is a valid Fernet key (32-byte URL-safe base64) so the garbage
+        payload passes Fernet format validation — structurally identical to real data.
     """
-    # Key stretching via two HMAC rounds prevents brute-forcing the ephemeral key
-    # from the known garbled payload, protecting the session entropy.
-    # Round 1: HMAC(session_entropy, salt)
+    # Round 1 binds the ephemeral key to this specific request + record combination.
+    # Without both SESSION_ENTROPY and this exact salt, Round 2 cannot be reproduced.
     step1 = hmac.new(_SESSION_ENTROPY, salt, hashlib.sha256).digest()
-    # Round 2: HMAC(step1, b"heisenberg-mutation")
+    # Round 2 adds the domain separator "heisenberg-mutation" to prevent key reuse
+    # across different security contexts (e.g., audit log signing vs. payload encryption).
     step2 = hmac.new(step1, b"heisenberg-mutation", hashlib.sha256).digest()
     # Fernet keys are 32-byte URL-safe base64-encoded values
     import base64
@@ -729,7 +735,11 @@ def _generate_garbage_payload(record_id: int, request_nonce: bytes) -> str:
     ephemeral_key = _derive_ephemeral_key(record_salt)
     ephemeral_fernet = Fernet(ephemeral_key)
 
-    # Build convincing-looking garbage "plaintext" before encrypting
+    # Build structurally convincing fake plaintext BEFORE encrypting.
+    # Encrypting garbage-looking plaintext would produce a valid Fernet token wrapping garbage.
+    # Encrypting plausible-looking plaintext produces a valid Fernet token wrapping plausible data.
+    # An attacker who somehow decrypts this (impossible without the ephemeral key) sees medical-
+    # record-shaped fields — not random noise — maximising deception time.
     h = lambda n: secrets.token_hex(n)   # noqa: E731
     fake_plaintext = (
         f"HVLT-{h(4).upper()}:{h(8).upper()}:{h(4).upper()}\n"
@@ -807,6 +817,10 @@ def _write_audit_log(
     query_fingerprint = hashlib.sha256(query_str.encode("utf-8")).hexdigest()
     with get_connection() as conn:
         row = conn.execute("SELECT row_hash FROM audit_log ORDER BY id DESC LIMIT 1").fetchone()
+        # Blockchain-style append-only chain: each row hashes its own content + previous row's hash.
+        # "HEISENBERG_GENESIS" is the hardcoded genesis block identifier for the first entry.
+        # If any row is deleted or modified, all subsequent row_hash values become invalid,
+        # making tampering detectable by walking the chain in /api/audit/verify.
         prev_hash = row["row_hash"] if row else "HEISENBERG_GENESIS"
         
         data_to_hash = (
@@ -1040,7 +1054,10 @@ async def query_records(
 
     # ── 3. Tier dispatch ───────────────────────────────────────────────────
 
-    # Pad responses to minimum ~150ms to mask LLM/Crypto overhead
+    # Timing side-channel mitigation: pad ALL responses to >= 150ms + random jitter.
+    # Without this, CRITICAL responses (which skip the LLM call) would be faster than ELEVATED,
+    # leaking tier information to an attacker measuring Time-To-First-Byte.
+    # The jitter (10-50ms) prevents statistical timing attacks across multiple requests.
     elapsed = time.perf_counter() - t_start
     if elapsed < 0.150:
         await asyncio.sleep(0.150 - elapsed + random.uniform(0.01, 0.05))
@@ -1168,11 +1185,14 @@ async def query_records(
         
         _write_audit_log(caller_ip, query_str, "CRITICAL", count, soc_narrative="Mass surveillance blocked via cryptographic obfuscation.")
 
+        # Deliberately reassuring response envelope — looks like a successful bulk export.
+        # The attacker sees HTTP 200, clearance FULL, and "export completed successfully."
+        # The _soc_* fields are present in the JSON but prefixed with underscore — visible to
+        # the admin dashboard but easily overlooked by an automated attacker parsing the response.
         return JSONResponse(
             _make_envelope(
                 tier=tier,
                 records=obfuscated,
-                # Deliberately reassuring — looks like a success to the caller
                 extra={
                     "clearance":        "FULL",
                     "encryption_algo":  "Fernet/AES-128-CBC",

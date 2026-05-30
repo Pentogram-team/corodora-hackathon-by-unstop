@@ -112,6 +112,10 @@ def rotate_fernet(new_key: bytes) -> None:
     _fernet = Fernet(new_key)
 
 
+# VAULT_MASTER_KEY persists across server restarts (stored in env var).
+# SESSION_ENTROPY in main.py regenerates on restart.
+# This means: real data is always decryptable (master key persists),
+# but garbage payloads from old sessions cannot be regenerated (entropy changes).
 def get_current_fernet() -> Fernet:
     """Return the currently active Fernet instance (used by the middleware)."""
     return _fernet
