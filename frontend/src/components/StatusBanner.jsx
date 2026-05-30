@@ -1,20 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 
 export default function StatusBanner({ isMutation, loading, response }) {
-  const [benchmarking, setBenchmarking] = useState(false)
-  const [benchData, setBenchData] = useState(null)
+  const [bench, setBench] = useState(null)
+  const [benchLoading, setBenchLoading] = useState(false)
 
   const runBenchmark = async () => {
-    setBenchmarking(true)
+    setBenchLoading(true)
     try {
-      const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'
-      const res = await fetch(`${API_BASE}/api/benchmark`)
-      const data = await res.json()
-      setBenchData(data)
+      const r = await fetch(`${import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000'}/api/benchmark`)
+      const d = await r.json()
+      setBench(d)
     } catch (e) {
       console.error(e)
     } finally {
-      setBenchmarking(false)
+      setBenchLoading(false)
     }
   }
 
@@ -133,24 +132,18 @@ export default function StatusBanner({ isMutation, loading, response }) {
               TIER: {tier}
             </div>
           )}
-          <button 
-            onClick={runBenchmark}
-            disabled={benchmarking}
-            className="bg-slate-700 hover:bg-slate-600 text-slate-300 text-[10px] font-mono px-2 py-1 rounded transition-colors disabled:opacity-50"
-          >
-            {benchmarking ? 'BENCHMARKING...' : '⚡ BENCHMARK'}
+          <button onClick={runBenchmark} disabled={benchLoading}
+            className="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 border border-slate-600 text-slate-300 text-[10px] font-mono transition-colors disabled:opacity-40">
+            {benchLoading ? '...' : '⚡ BENCHMARK'}
           </button>
         </div>
       </div>
 
-      {benchData && (
-        <div className="animate-slide-down mt-2 px-5 py-2.5 rounded-lg border border-slate-700 bg-slate-800/60 flex items-center justify-between">
-          <div className="text-[10px] font-mono text-slate-300">
-            SURGICAL avg: {benchData.surgical.avg_ms}ms | CRITICAL avg: {benchData.critical.avg_ms}ms
-          </div>
-          <div className="text-[10px] font-mono text-emerald-400 font-bold tracking-widest">
-            VERDICT: {benchData.surgical.verdict}
-          </div>
+      {bench && (
+        <div className="mx-3 mb-1 px-4 py-2 rounded bg-slate-800/60 border border-slate-700/40 flex gap-6 text-[10px] font-mono text-slate-400">
+          <span>SURGICAL avg: <span className="text-emerald-400">{bench?.surgical?.avg_ms}ms</span></span>
+          <span>CRITICAL avg: <span className="text-amber-400">{bench?.critical?.avg_ms}ms</span></span>
+          <span className="text-emerald-400">{bench?.verdict}</span>
         </div>
       )}
     </div>

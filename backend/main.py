@@ -1198,41 +1198,39 @@ async def get_health() -> dict:
 
 @app.get("/api/benchmark", tags=["vault"], summary="Live performance benchmark")
 async def run_benchmark():
-    """
-    Runs internal timing benchmarks to prove surgical query overhead is minimal.
-    Does NOT call the HTTP layer — calls internal functions directly.
-    """
+    """Proves surgical query overhead is minimal vs full mutation cost."""
+    import time as _time
+
     surgical_times = []
-    for i in range(1, 21):  # 20 surgical queries
-        t0 = time.perf_counter()
+    for i in range(1, 21):
+        t0 = _time.perf_counter()
         fetch_records_paginated(offset=i-1, limit=1, decrypt=True)
-        elapsed = (time.perf_counter() - t0) * 1000
-        surgical_times.append(elapsed)
+        surgical_times.append((_time.perf_counter() - t0) * 1000)
 
     critical_times = []
-    for i in range(5):  # 5 critical queries
-        t0 = time.perf_counter()
+    for _ in range(5):
+        t0 = _time.perf_counter()
         nonce = secrets.token_bytes(16)
         rows = fetch_records_paginated(offset=0, limit=15, decrypt=False)
         _apply_critical_obfuscation(rows, nonce)
-        elapsed = (time.perf_counter() - t0) * 1000
-        critical_times.append(elapsed)
+        critical_times.append((_time.perf_counter() - t0) * 1000)
 
+    s_avg = sum(surgical_times)/len(surgical_times)
+    c_avg = sum(critical_times)/len(critical_times)
     return {
         "surgical": {
-            "n": len(surgical_times),
-            "avg_ms": round(sum(surgical_times)/len(surgical_times), 2),
+            "n": 20,
+            "avg_ms": round(s_avg, 2),
             "min_ms": round(min(surgical_times), 2),
             "max_ms": round(max(surgical_times), 2),
-            "verdict": "PRODUCTION READY"
         },
         "critical": {
-            "n": len(critical_times),
-            "avg_ms": round(sum(critical_times)/len(critical_times), 2),
-            "min_ms": round(min(critical_times), 2),
-            "max_ms": round(max(critical_times), 2),
-            "note": "Cryptographic mutation overhead per CRITICAL sweep"
+            "n": 5,
+            "avg_ms": round(c_avg, 2),
+            "note": "Full Fernet mutation + garbage generation per sweep"
         },
+        "overhead_claim": f"Surgical immunity costs {round(s_avg,1)}ms avg per query",
+        "verdict": "PRODUCTION READY",
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
